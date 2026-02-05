@@ -17,8 +17,13 @@ API_KEY = "SECRET_API_KEY_123"   # change before submission
 classifier = VoiceClassifier()
 classifier.load("voice_model.pkl")
 
+from typing import Optional
+
 class AudioRequest(BaseModel):
-    audio_base64: str
+    audioBase64: str
+    language: Optional[str] = None
+    audioFormat: Optional[str] = None
+
 
 def extract_features_from_base64_mp3(base64_audio: str):
     try:
@@ -45,34 +50,23 @@ def extract_features_from_base64_mp3(base64_audio: str):
         )
 
 @app.post("/detect")
-def detect_voice(
-    req: AudioRequest,
-    x_api_key: str = Header(None)
-):
-    # 🔐 API Key validation
-    if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API Key")
-
-    features = extract_features_from_base64_mp3(req.audio_base64)
+def detect_voice(req: AudioRequest):
+    features = extract_features_from_base64_mp3(req.audioBase64)
     pred, conf = classifier.predict(features)
 
     if pred == 1:
         classification = "AI_GENERATED"
-        explanation = (
-            "The audio shows highly regular spectral patterns, "
-            "low jitter, and smooth pitch contours commonly "
-            "observed in synthesized speech."
-        )
+        explanation = "Audio shows low jitter, smooth pitch contours, and regular spectral patterns typical of synthesized speech"
     else:
         classification = "HUMAN"
-        explanation = (
-            "The audio contains natural pitch variation, "
-            "micro-pauses, and irregular spectral patterns "
-            "typical of human speech."
-        )
+        explanation = "Audio contains natural pitch variation, micro-pauses, and irregular spectral patterns typical of human speech"
 
     return {
         "classification": classification,
-        "confidenceScore": round(float(conf), 4),
+        "confidenceScore": round(float(conf), 3),
         "explanation": explanation
     }
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
