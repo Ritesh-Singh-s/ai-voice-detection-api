@@ -23,18 +23,6 @@ def normalize_base64(b64: str) -> bytes:
     except Exception:
         return base64.urlsafe_b64decode(b64)
 
-
-def is_valid_mp3(audio_bytes: bytes) -> bool:
-    # ID3 tag
-    if audio_bytes[:3] == b"ID3":
-        return True
-
-    # MP3 frame sync
-    if len(audio_bytes) > 2 and audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0:
-        return True
-
-    return False
-
 app = FastAPI(title="AI vs Human Voice Detection API")
 
 # -------- CONFIG --------
@@ -63,16 +51,27 @@ def extract_features_from_base64_mp3(b64_audio: str):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid Base64 audio input")
 
-    if not is_valid_mp3(audio_bytes):
-        raise HTTPException(status_code=400, detail="Invalid Base64 MP3 audio input")
-
     audio_buffer = io.BytesIO(audio_bytes)
 
-    # Decode MP3 → waveform
-    y, sr = librosa.load(audio_buffer, sr=16000, mono=True)
+    try:
+        # Let librosa validate & decode
+        y, sr = librosa.load(audio_buffer, sr=16000, mono=True)
+    except Exception:
+        # If decoding fails, it's not a valid MP3
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Base64 MP3 audio input"
+        )
+
+    if y is None or len(y) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Base64 MP3 audio input"
+        )
 
     mfcc = librosa.feature.mfcc(y=y, sr=16000, n_mfcc=40)
     return np.mean(mfcc.T, axis=0)
+
 
 
 @app.post("/detect")
