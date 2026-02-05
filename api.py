@@ -17,12 +17,17 @@ API_KEY = "SECRET_API_KEY_123"   # change before submission
 classifier = VoiceClassifier()
 classifier.load("voice_model.pkl")
 
+from pydantic import BaseModel, Field
 from typing import Optional
 
 class AudioRequest(BaseModel):
-    audioBase64: str
+    audio_base64: str = Field(..., alias="audioBase64")
     language: Optional[str] = None
     audioFormat: Optional[str] = None
+
+    class Config:
+        allow_population_by_field_name = True
+
 
 
 def extract_features_from_base64_mp3(base64_audio: str):
@@ -50,22 +55,35 @@ def extract_features_from_base64_mp3(base64_audio: str):
         )
 
 @app.post("/detect")
-def detect_voice(req: AudioRequest):
-    features = extract_features_from_base64_mp3(req.audioBase64)
+def detect_voice(
+    req: AudioRequest,
+    x_api_key: str = Header(None)
+):
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API Key")
+
+    features = extract_features_from_base64_mp3(req.audio_base64)
     pred, conf = classifier.predict(features)
 
     if pred == 1:
         classification = "AI_GENERATED"
-        explanation = "Audio shows low jitter, smooth pitch contours, and regular spectral patterns typical of synthesized speech"
+        explanation = (
+            "Audio shows low jitter, smooth pitch contours, and "
+            "regular spectral patterns typical of synthesized speech"
+        )
     else:
         classification = "HUMAN"
-        explanation = "Audio contains natural pitch variation, micro-pauses, and irregular spectral patterns typical of human speech"
+        explanation = (
+            "Audio contains natural pitch variation, micro-pauses, "
+            "and irregular spectral patterns typical of human speech"
+        )
 
     return {
         "classification": classification,
         "confidenceScore": round(float(conf), 3),
         "explanation": explanation
     }
+
 
 @app.get("/health")
 def health():
