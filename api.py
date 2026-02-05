@@ -36,12 +36,9 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 class AudioRequest(BaseModel):
-    audio_base64: str = Field(..., alias="audioBase64")
+    audioBase64: str
     language: Optional[str] = None
     audioFormat: Optional[str] = None
-
-    class Config:
-        allow_population_by_field_name = True
 
 
 
@@ -82,7 +79,8 @@ def detect_voice(
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
-    features = extract_features_from_base64_mp3(req.audio_base64)
+    features = extract_features_from_base64_mp3(req.audioBase64)
+
     pred, conf = classifier.predict(features)
 
     if pred == 1:
