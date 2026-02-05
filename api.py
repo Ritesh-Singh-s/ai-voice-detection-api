@@ -1,12 +1,39 @@
 
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional
 import base64
+import re
 import io
-import soundfile as sf
 import librosa
 import numpy as np
 from model import VoiceClassifier
+
+def normalize_base64(b64: str) -> bytes:
+    # Remove whitespace and newlines
+    b64 = re.sub(r"\s+", "", b64)
+
+    # Fix missing padding
+    missing_padding = len(b64) % 4
+    if missing_padding:
+        b64 += "=" * (4 - missing_padding)
+
+    try:
+        return base64.b64decode(b64, validate=False)
+    except Exception:
+        return base64.urlsafe_b64decode(b64)
+
+
+def is_valid_mp3(audio_bytes: bytes) -> bool:
+    # ID3 tag
+    if audio_bytes[:3] == b"ID3":
+        return True
+
+    # MP3 frame sync
+    if len(audio_bytes) > 2 and audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0:
+        return True
+
+    return False
 
 app = FastAPI(title="AI vs Human Voice Detection API")
 
@@ -30,29 +57,23 @@ class AudioRequest(BaseModel):
 
 
 
-def extract_features_from_base64_mp3(base64_audio: str):
+def extract_features_from_base64_mp3(b64_audio: str):
     try:
-        audio_bytes = base64.b64decode(base64_audio)
-        audio_buffer = io.BytesIO(audio_bytes)
-
-        # Decode audio
-        y, sr = sf.read(audio_buffer)
-
-        # Convert stereo to mono (allowed)
-        if len(y.shape) > 1:
-            y = np.mean(y, axis=1)
-
-        # Normalize sample rate (allowed)
-        y = librosa.resample(y, orig_sr=sr, target_sr=16000)
-
-        mfcc = librosa.feature.mfcc(y=y, sr=16000, n_mfcc=40)
-        return np.mean(mfcc.T, axis=0)
-
+        audio_bytes = normalize_base64(b64_audio)
     except Exception:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid Base64 MP3 audio input"
-        )
+        raise HTTPException(status_code=400, detail="Invalid Base64 audio input")
+
+    if not is_valid_mp3(audio_bytes):
+        raise HTTPException(status_code=400, detail="Invalid Base64 MP3 audio input")
+
+    audio_buffer = io.BytesIO(audio_bytes)
+
+    # Decode MP3 → waveform
+    y, sr = librosa.load(audio_buffer, sr=16000, mono=True)
+
+    mfcc = librosa.feature.mfcc(y=y, sr=16000, n_mfcc=40)
+    return np.mean(mfcc.T, axis=0)
+
 
 @app.post("/detect")
 def detect_voice(
